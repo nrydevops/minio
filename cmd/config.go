@@ -20,15 +20,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"io/ioutil"
 	"path"
 	"runtime"
 	"time"
 
-	"github.com/minio/minio/cmd/logger"
-	"github.com/minio/minio/pkg/hash"
 	"github.com/minio/minio/pkg/quick"
 )
 
@@ -60,24 +57,6 @@ func saveServerConfig(objAPI ObjectLayer, config *serverConfig) error {
 	return saveConfig(objAPI, configFile, data)
 }
 
-func readConfigEtcd(configFile string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	resp, err := globalEtcdClient.Get(ctx, configFile)
-	defer cancel()
-	if err != nil {
-		return nil, err
-	}
-	if resp.Count == 0 {
-		return nil, errConfigNotFound
-	}
-	for _, ev := range resp.Kvs {
-		if string(ev.Key) == configFile {
-			return ev.Value, nil
-		}
-	}
-	return nil, errConfigNotFound
-}
-
 func readServerConfig(ctx context.Context, objAPI ObjectLayer) (*serverConfig, error) {
 	var configData []byte
 	var err error
@@ -105,79 +84,15 @@ func readServerConfig(ctx context.Context, objAPI ObjectLayer) (*serverConfig, e
 	}
 
 	var config = &serverConfig{}
-	if err := json.Unmarshal(configData, config); err != nil {
+	if err = json.Unmarshal(configData, config); err != nil {
 		return nil, err
 	}
 
-	if err := quick.CheckData(config); err != nil {
+	if err = quick.CheckData(config); err != nil {
 		return nil, err
 	}
 
 	return config, nil
-}
-
-func checkServerConfigEtcd(configFile string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	resp, err := globalEtcdClient.Get(ctx, configFile)
-	defer cancel()
-	if err != nil {
-		return err
-	}
-	if resp.Count == 0 {
-		return errConfigNotFound
-	}
-	return nil
-}
-
-func checkServerConfig(ctx context.Context, objAPI ObjectLayer) error {
-	configFile := path.Join(minioConfigPrefix, minioConfigFile)
-	if globalEtcdClient != nil {
-		return checkServerConfigEtcd(configFile)
-	}
-
-	if _, err := objAPI.GetObjectInfo(ctx, minioMetaBucket, configFile); err != nil {
-		if isErrObjectNotFound(err) {
-			return errConfigNotFound
-		}
-		logger.GetReqInfo(ctx).AppendTags("configFile", configFile)
-		logger.LogIf(ctx, err)
-		return err
-	}
-	return nil
-}
-
-func saveConfig(objAPI ObjectLayer, configFile string, data []byte) error {
-	hashReader, err := hash.NewReader(bytes.NewReader(data), int64(len(data)), "", getSHA256Hash(data))
-	if err != nil {
-		return err
-	}
-
-	_, err = objAPI.PutObject(context.Background(), minioMetaBucket, configFile, hashReader, nil)
-	return err
-}
-
-var errConfigNotFound = errors.New("config file not found")
-
-func readConfig(ctx context.Context, objAPI ObjectLayer, configFile string) (*bytes.Buffer, error) {
-	var buffer bytes.Buffer
-	// Read entire content by setting size to -1
-	if err := objAPI.GetObject(ctx, minioMetaBucket, configFile, 0, -1, &buffer, ""); err != nil {
-		// Ignore if err is ObjectNotFound or IncompleteBody when bucket is not configured with notification
-		if isErrObjectNotFound(err) || isErrIncompleteBody(err) || isInsufficientReadQuorum(err) {
-			return nil, errConfigNotFound
-		}
-
-		logger.GetReqInfo(ctx).AppendTags("configFile", configFile)
-		logger.LogIf(ctx, err)
-		return nil, err
-	}
-
-	// Return config not found on empty content.
-	if buffer.Len() == 0 {
-		return nil, errConfigNotFound
-	}
-
-	return &buffer, nil
 }
 
 // ConfigSys - config system.
@@ -203,8 +118,9 @@ func NewConfigSys() *ConfigSys {
 
 // Migrates ${HOME}/.minio/config.json to '<export_path>/.minio.sys/config/config.json'
 func migrateConfigToMinioSys(objAPI ObjectLayer) error {
+	configFile := path.Join(minioConfigPrefix, minioConfigFile)
 	// Verify if backend already has the file.
-	if err := checkServerConfig(context.Background(), objAPI); err != errConfigNotFound {
+	if err := checkConfig(context.Background(), configFile, objAPI); err != errConfigNotFound {
 		return err
 	} // if errConfigNotFound proceed to migrate..
 
@@ -227,14 +143,20 @@ func initConfig(objAPI ObjectLayer) error {
 		resp, err := globalEtcdClient.Get(ctx, getConfigFile())
 		cancel()
 		if err == nil && resp.Count > 0 {
-			return migrateConfig()
+			if err = migrateConfig(); err != nil {
+				return err
+			}
+
+			// Migrates etcd ${HOME}/.minio/config.json to '/config/config.json'
+			if err := migrateConfigToMinioSys(); err != nil {
+				return err
+			}
 		}
 	} else {
 		if isFile(getConfigFile()) {
 			if err := migrateConfig(); err != nil {
 				return err
 			}
-
 			// Migrates ${HOME}/.minio/config.json to '<export_path>/.minio.sys/config/config.json'
 			if err := migrateConfigToMinioSys(objAPI); err != nil {
 				return err
@@ -242,10 +164,15 @@ func initConfig(objAPI ObjectLayer) error {
 		}
 	}
 
-	if err := checkServerConfig(context.Background(), objAPI); err != nil {
+	configFile := path.Join(minioConfigPrefix, minioConfigFile)
+
+	// Watch config for changes and reloads them in-memory.
+	go watchConfig(objAPI, configFile, loadConfig)
+
+	if err := checkConfig(context.Background(), configFile, objAPI); err != nil {
 		if err == errConfigNotFound {
 			// Config file does not exist, we create it fresh and return upon success.
-			if err = newConfig(objAPI); err != nil {
+			if err = newSrvConfig(objAPI); err != nil {
 				return err
 			}
 		} else {

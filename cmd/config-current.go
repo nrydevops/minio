@@ -198,55 +198,55 @@ func (s *serverConfig) Validate() error {
 
 	for _, v := range s.Notify.AMQP {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("amqp: %s", err.Error())
+			return fmt.Errorf("amqp: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.Elasticsearch {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("elasticsearch: %s", err.Error())
+			return fmt.Errorf("elasticsearch: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.Kafka {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("kafka: %s", err.Error())
+			return fmt.Errorf("kafka: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.MQTT {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("mqtt: %s", err.Error())
+			return fmt.Errorf("mqtt: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.MySQL {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("mysql: %s", err.Error())
+			return fmt.Errorf("mysql: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.NATS {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("nats: %s", err.Error())
+			return fmt.Errorf("nats: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.PostgreSQL {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("postgreSQL: %s", err.Error())
+			return fmt.Errorf("postgreSQL: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.Redis {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("redis: %s", err.Error())
+			return fmt.Errorf("redis: %s", err)
 		}
 	}
 
 	for _, v := range s.Notify.Webhook {
 		if err := v.Validate(); err != nil {
-			return fmt.Errorf("webhook: %s", err.Error())
+			return fmt.Errorf("webhook: %s", err)
 		}
 	}
 
@@ -430,9 +430,9 @@ func (s *serverConfig) loadToCachedConfigs() {
 	}
 }
 
-// newConfig - initialize a new server config, saves env parameters if
+// newSrvConfig - initialize a new server config, saves env parameters if
 // found, otherwise use default parameters
-func newConfig(objAPI ObjectLayer) error {
+func newSrvConfig(objAPI ObjectLayer) error {
 	// Initialize server config.
 	srvCfg := newServerConfig()
 

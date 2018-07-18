@@ -27,8 +27,10 @@ import (
 	"net/http"
 	"strings"
 
+	jwtgo "github.com/dgrijalva/jwt-go"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/hash"
+	"github.com/minio/minio/pkg/iam/policy"
 	"github.com/minio/minio/pkg/policy"
 )
 
@@ -86,6 +88,7 @@ const (
 	authTypeSigned
 	authTypeSignedV2
 	authTypeJWT
+	authTypeSTS
 )
 
 // Get request authentication type.
@@ -106,6 +109,8 @@ func getRequestAuthType(r *http.Request) authType {
 		return authTypePostPolicy
 	} else if _, ok := r.Header["Authorization"]; !ok {
 		return authTypeAnonymous
+	} else if _, ok := r.URL.Query()["Action"]; ok {
+		return authTypeSTS
 	}
 	return authTypeUnknown
 }
@@ -114,8 +119,24 @@ func getRequestAuthType(r *http.Request) authType {
 // It does not accept presigned or JWT or anonymous requests.
 func checkAdminRequestAuthType(r *http.Request, region string) APIErrorCode {
 	s3Err := ErrAccessDenied
-	if _, ok := r.Header["X-Amz-Content-Sha256"]; ok && getRequestAuthType(r) == authTypeSigned && !skipContentSha256Cksum(r) { // we only support V4 (no presign) with auth. body
+	if _, ok := r.Header["X-Amz-Content-Sha256"]; ok &&
+		getRequestAuthType(r) == authTypeSigned && !skipContentSha256Cksum(r) {
+		// We only support admin credentials to access admin APIs.
+
+		var owner bool
+		_, owner, s3Err = getReqAccessKeyV4(r, region)
+		if s3Err != ErrNone {
+			return s3Err
+		}
+
+		s3Err = ErrAccessDenied
+		if !owner {
+			return s3Err
+		}
+
+		// we only support V4 (no presign) with auth body
 		s3Err = isReqAuthenticated(r, region)
+
 	}
 	if s3Err != ErrNone {
 		reqInfo := (&logger.ReqInfo{}).AppendTags("requestHeaders", dumpRequest(r))
@@ -125,30 +146,57 @@ func checkAdminRequestAuthType(r *http.Request, region string) APIErrorCode {
 	return s3Err
 }
 
-func checkRequestAuthType(ctx context.Context, r *http.Request, action policy.Action, bucketName, objectName string) APIErrorCode {
-	isOwner := true
-	accountName := globalServerConfig.GetCredential().AccessKey
+// Fetch the security token set by the client.
+func getSessionToken(r *http.Request) (token string) {
+	token = r.Header.Get("X-Amz-Security-Token")
+	if token != "" {
+		return token
+	}
+	return r.URL.Query().Get("X-Amz-Security-Token")
+}
 
+// Fetch claims in the security token returned by the client and validate the token.
+func getClaimsFromToken(r *http.Request, claims map[string]interface{}) APIErrorCode {
+	token := getSessionToken(r)
+	if token != "" {
+		p := &jwtgo.Parser{
+			SkipClaimsValidation: true,
+		}
+		jtoken, err := p.ParseWithClaims(token, jwtgo.MapClaims(claims), stsTokenCallback)
+		if err != nil {
+			return toAPIErrorCode(err)
+		}
+		if !jtoken.Valid {
+			return toAPIErrorCode(errAuthentication)
+		}
+	}
+	return ErrNone
+}
+
+func checkRequestAuthType(ctx context.Context, r *http.Request, action policy.Action, bucketName, objectName string) (s3Err APIErrorCode) {
+	var accountName string
+	var owner bool
 	switch getRequestAuthType(r) {
 	case authTypeUnknown:
 		return ErrAccessDenied
 	case authTypePresignedV2, authTypeSignedV2:
-		if errorCode := isReqAuthenticatedV2(r); errorCode != ErrNone {
-			return errorCode
+		if s3Err = isReqAuthenticatedV2(r); s3Err != ErrNone {
+			return s3Err
 		}
+		accountName, owner, s3Err = getReqAccessKeyV2(r)
 	case authTypeSigned, authTypePresigned:
 		region := globalServerConfig.GetRegion()
 		switch action {
 		case policy.GetBucketLocationAction, policy.ListAllMyBucketsAction:
 			region = ""
 		}
-
-		if errorCode := isReqAuthenticated(r, region); errorCode != ErrNone {
-			return errorCode
+		if s3Err = isReqAuthenticated(r, region); s3Err != ErrNone {
+			return s3Err
 		}
-	default:
-		isOwner = false
-		accountName = ""
+		accountName, owner, s3Err = getReqAccessKeyV4(r, region)
+	}
+	if s3Err != ErrNone {
+		return s3Err
 	}
 
 	// LocationConstraint is valid only for CreateBucketAction.
@@ -174,17 +222,37 @@ func checkRequestAuthType(ctx context.Context, r *http.Request, action policy.Ac
 		r.Body = ioutil.NopCloser(bytes.NewReader(payload))
 	}
 
-	if globalPolicySys.IsAllowed(policy.Args{
+	var claims = map[string]interface{}{}
+	s3Err = getClaimsFromToken(r, claims)
+	if s3Err != ErrNone {
+		return s3Err
+	}
+
+	if accountName == "" {
+		if globalPolicySys.IsAllowed(policy.Args{
+			AccountName:     accountName,
+			Action:          action,
+			BucketName:      bucketName,
+			ConditionValues: getConditionValues(r, locationConstraint),
+			IsOwner:         false,
+			ObjectName:      objectName,
+		}) {
+			return ErrNone
+		}
+		return ErrAccessDenied
+	}
+
+	if globalIAMSys.IsAllowed(iampolicy.Args{
 		AccountName:     accountName,
-		Action:          action,
+		Action:          iampolicy.Action(action),
 		BucketName:      bucketName,
-		ConditionValues: getConditionValues(r, locationConstraint),
-		IsOwner:         isOwner,
+		ConditionValues: getConditionValues(r, ""),
+		IsOwner:         owner,
 		ObjectName:      objectName,
+		Claims:          claims,
 	}) {
 		return ErrNone
 	}
-
 	return ErrAccessDenied
 }
 
@@ -296,4 +364,56 @@ func (a authHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeErrorResponse(w, ErrSignatureVersionNotSupported, r.URL)
+}
+
+// isPutAllowed - check if PUT operation is allowed on the resource, this
+// call verifies bucket policies and IAM policies, supports multi user
+// checks etc.
+func isPutAllowed(atype authType, bucketName, objectName string, r *http.Request) (s3Err APIErrorCode) {
+	var accountName string
+	var owner bool
+	switch atype {
+	case authTypeUnknown:
+		return ErrAccessDenied
+	case authTypeSignedV2, authTypePresignedV2:
+		accountName, owner, s3Err = getReqAccessKeyV2(r)
+	case authTypeStreamingSigned, authTypePresigned, authTypeSigned:
+		region := globalServerConfig.GetRegion()
+		accountName, owner, s3Err = getReqAccessKeyV4(r, region)
+	}
+	if s3Err != ErrNone {
+		return s3Err
+	}
+
+	var claims = map[string]interface{}{}
+	s3Err = getClaimsFromToken(r, claims)
+	if s3Err != ErrNone {
+		return s3Err
+	}
+
+	if accountName == "" {
+		if globalPolicySys.IsAllowed(policy.Args{
+			AccountName:     accountName,
+			Action:          policy.PutObjectAction,
+			BucketName:      bucketName,
+			ConditionValues: getConditionValues(r, ""),
+			IsOwner:         false,
+			ObjectName:      objectName,
+		}) {
+			return ErrNone
+		}
+		return ErrAccessDenied
+	}
+	if globalIAMSys.IsAllowed(iampolicy.Args{
+		AccountName:     accountName,
+		Action:          policy.PutObjectAction,
+		BucketName:      bucketName,
+		ConditionValues: getConditionValues(r, ""),
+		IsOwner:         owner,
+		ObjectName:      objectName,
+		Claims:          claims,
+	}) {
+		return ErrNone
+	}
+	return ErrAccessDenied
 }

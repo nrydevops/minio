@@ -99,6 +99,9 @@ func configureServerHandler(endpoints EndpointList) (http.Handler, error) {
 		registerDistXLRouters(router, endpoints)
 	}
 
+	// Add STS router
+	registerSTSRouter(router)
+
 	// Add Admin RPC router
 	registerAdminRPCRouter(router)
 

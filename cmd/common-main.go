@@ -27,12 +27,11 @@ import (
 
 	etcd "github.com/coreos/etcd/clientv3"
 	"github.com/minio/cli"
+	"github.com/minio/minio-go/pkg/set"
 	"github.com/minio/minio/cmd/crypto"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/dns"
-
-	"github.com/minio/minio-go/pkg/set"
 )
 
 // Check for updates and print a notification message
@@ -108,6 +107,7 @@ func handleCommonEnvVars() {
 		if err != nil {
 			logger.Fatal(uiErrInvalidCredentials(err), "Unable to validate credentials inherited from the shell environment")
 		}
+		cred.Expiration = timeSentinel
 
 		// credential Envs are set globally.
 		globalIsEnvCreds = true
@@ -243,7 +243,7 @@ func handleCommonEnvVars() {
 	if worm := os.Getenv("MINIO_WORM"); worm != "" {
 		wormFlag, err := ParseBoolFlag(worm)
 		if err != nil {
-			logger.Fatal(uiErrInvalidWormValue(nil).Msg("Unknown value `%s`", worm), "Unable to validate MINIO_WORM environment variable")
+			logger.Fatal(uiErrInvalidWormValue(nil).Msg("Unknown value `%s`", worm), "Invalid MINIO_WORM environment variable")
 		}
 
 		// worm Envs are set globally, this does not represent

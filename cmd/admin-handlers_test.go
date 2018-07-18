@@ -750,7 +750,7 @@ func TestSetConfigHandler(t *testing.T) {
 		adminTestBed.router.ServeHTTP(rec, req)
 		respBody := string(rec.Body.Bytes())
 		if rec.Code != http.StatusBadRequest ||
-			!strings.Contains(respBody, "JSON configuration provided has objects with duplicate keys") {
+			!strings.Contains(respBody, "JSON configuration provided is of incorrect format") {
 			t.Errorf("Got unexpected response code or body %d - %s", rec.Code, respBody)
 		}
 	}

@@ -192,6 +192,7 @@ const (
 	ErrAdminConfigNoQuorum
 	ErrAdminConfigTooLarge
 	ErrAdminConfigBadJSON
+	ErrAdminConfigDuplicateKeys
 	ErrAdminCredentialsMismatch
 	ErrInsecureClientRequest
 	ErrObjectTampered
@@ -883,6 +884,11 @@ var errorCodeResponse = map[APIErrorCode]APIError{
 	},
 	ErrAdminConfigBadJSON: {
 		Code:           "XMinioAdminConfigBadJSON",
+		Description:    "JSON configuration provided is of incorrect format",
+		HTTPStatusCode: http.StatusBadRequest,
+	},
+	ErrAdminConfigDuplicateKeys: {
+		Code:           "XMinioAdminConfigDuplicateKeys",
 		Description:    "JSON configuration provided has objects with duplicate keys",
 		HTTPStatusCode: http.StatusBadRequest,
 	},

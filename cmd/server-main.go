@@ -339,6 +339,12 @@ func serverMain(ctx *cli.Context) {
 	// Re-enable logging
 	logger.Disable = false
 
+	// Create new IAM system.
+	globalIAMSys = NewIAMSys()
+	if err := globalIAMSys.Init(newObjectLayerFn()); err != nil {
+		logger.Fatal(err, "Unable to initialize IAM system")
+	}
+
 	// Create new policy system.
 	globalPolicySys = NewPolicySys()
 

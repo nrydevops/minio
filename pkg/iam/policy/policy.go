@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
-package policy
+package iampolicy
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
+
+	"github.com/minio/minio/pkg/policy"
 )
 
 // DefaultVersion - default policy version as per AWS S3 specification.
@@ -27,26 +29,27 @@ const DefaultVersion = "2012-10-17"
 
 // Args - arguments to policy to check whether it is allowed
 type Args struct {
-	AccountName     string              `json:"account"`
-	Action          Action              `json:"action"`
-	BucketName      string              `json:"bucket"`
-	ConditionValues map[string][]string `json:"conditions"`
-	IsOwner         bool                `json:"owner"`
-	ObjectName      string              `json:"object"`
+	AccountName     string                 `json:"account"`
+	Action          Action                 `json:"action"`
+	BucketName      string                 `json:"bucket"`
+	ConditionValues map[string][]string    `json:"conditions"`
+	IsOwner         bool                   `json:"owner"`
+	ObjectName      string                 `json:"object"`
+	Claims          map[string]interface{} `json:"claims"`
 }
 
-// Policy - bucket policy.
+// Policy - iam bucket iamp.
 type Policy struct {
-	ID         ID `json:"ID,omitempty"`
+	ID         policy.ID `json:"ID,omitempty"`
 	Version    string
 	Statements []Statement `json:"Statement"`
 }
 
 // IsAllowed - checks given policy args is allowed to continue the Rest API.
-func (policy Policy) IsAllowed(args Args) bool {
+func (iamp Policy) IsAllowed(args Args) bool {
 	// Check all deny statements. If any one statement denies, return false.
-	for _, statement := range policy.Statements {
-		if statement.Effect == Deny {
+	for _, statement := range iamp.Statements {
+		if statement.Effect == policy.Deny {
 			if !statement.IsAllowed(args) {
 				return false
 			}
@@ -59,8 +62,8 @@ func (policy Policy) IsAllowed(args Args) bool {
 	}
 
 	// Check all allow statements. If any one statement allows, return true.
-	for _, statement := range policy.Statements {
-		if statement.Effect == Allow {
+	for _, statement := range iamp.Statements {
+		if statement.Effect == policy.Allow {
 			if statement.IsAllowed(args) {
 				return true
 			}
@@ -71,45 +74,40 @@ func (policy Policy) IsAllowed(args Args) bool {
 }
 
 // IsEmpty - returns whether policy is empty or not.
-func (policy Policy) IsEmpty() bool {
-	return len(policy.Statements) == 0
+func (iamp Policy) IsEmpty() bool {
+	return len(iamp.Statements) == 0
 }
 
 // isValid - checks if Policy is valid or not.
-func (policy Policy) isValid() error {
-	if policy.Version != DefaultVersion && policy.Version != "" {
-		return fmt.Errorf("invalid version '%v'", policy.Version)
+func (iamp Policy) isValid() error {
+	if iamp.Version != DefaultVersion && iamp.Version != "" {
+		return fmt.Errorf("invalid version '%v'", iamp.Version)
 	}
 
-	for _, statement := range policy.Statements {
+	for _, statement := range iamp.Statements {
 		if err := statement.isValid(); err != nil {
 			return err
 		}
 	}
 
-	for i := range policy.Statements {
-		for _, statement := range policy.Statements[i+1:] {
-			principals := policy.Statements[i].Principal.Intersection(statement.Principal)
-			if principals.IsEmpty() {
-				continue
-			}
-
-			actions := policy.Statements[i].Actions.Intersection(statement.Actions)
+	for i := range iamp.Statements {
+		for _, statement := range iamp.Statements[i+1:] {
+			actions := iamp.Statements[i].Actions.Intersection(statement.Actions)
 			if len(actions) == 0 {
 				continue
 			}
 
-			resources := policy.Statements[i].Resources.Intersection(statement.Resources)
+			resources := iamp.Statements[i].Resources.Intersection(statement.Resources)
 			if len(resources) == 0 {
 				continue
 			}
 
-			if policy.Statements[i].Conditions.String() != statement.Conditions.String() {
+			if iamp.Statements[i].Conditions.String() != statement.Conditions.String() {
 				continue
 			}
 
-			return fmt.Errorf("duplicate principal %v, actions %v, resouces %v found in statements %v, %v",
-				principals, actions, resources, policy.Statements[i], statement)
+			return fmt.Errorf("duplicate actions %v, resouces %v found in statements %v, %v",
+				actions, resources, iamp.Statements[i], statement)
 		}
 	}
 
@@ -117,18 +115,18 @@ func (policy Policy) isValid() error {
 }
 
 // MarshalJSON - encodes Policy to JSON data.
-func (policy Policy) MarshalJSON() ([]byte, error) {
-	if err := policy.isValid(); err != nil {
+func (iamp Policy) MarshalJSON() ([]byte, error) {
+	if err := iamp.isValid(); err != nil {
 		return nil, err
 	}
 
 	// subtype to avoid recursive call to MarshalJSON()
 	type subPolicy Policy
-	return json.Marshal(subPolicy(policy))
+	return json.Marshal(subPolicy(iamp))
 }
 
-// UnmarshalJSON - decodes JSON data to Policy.
-func (policy *Policy) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON - decodes JSON data to Iamp.
+func (iamp *Policy) UnmarshalJSON(data []byte) error {
 	// subtype to avoid recursive call to UnmarshalJSON()
 	type subPolicy Policy
 	var sp subPolicy
@@ -141,19 +139,19 @@ func (policy *Policy) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*policy = p
+	*iamp = p
 
 	return nil
 }
 
 // Validate - validates all statements are for given bucket or not.
-func (policy Policy) Validate(bucketName string) error {
-	if err := policy.isValid(); err != nil {
+func (iamp Policy) Validate() error {
+	if err := iamp.isValid(); err != nil {
 		return err
 	}
 
-	for _, statement := range policy.Statements {
-		if err := statement.Validate(bucketName); err != nil {
+	for _, statement := range iamp.Statements {
+		if err := statement.Validate(); err != nil {
 			return err
 		}
 	}
@@ -161,16 +159,15 @@ func (policy Policy) Validate(bucketName string) error {
 	return nil
 }
 
-// ParseConfig - parses data in given reader to Policy.
-func ParseConfig(reader io.Reader, bucketName string) (*Policy, error) {
-	var policy Policy
+// ParseConfig - parses data in given reader to Iamp.
+func ParseConfig(reader io.Reader) (*Policy, error) {
+	var iamp Policy
 
 	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&policy); err != nil {
+	if err := decoder.Decode(&iamp); err != nil {
 		return nil, err
 	}
 
-	err := policy.Validate(bucketName)
-	return &policy, err
+	return &iamp, iamp.Validate()
 }

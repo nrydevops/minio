@@ -30,6 +30,7 @@ import (
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/auth"
 	"github.com/minio/minio/pkg/handlers"
+	"github.com/minio/minio/pkg/iam"
 	"github.com/minio/minio/pkg/madmin"
 	"github.com/minio/minio/pkg/quick"
 )
@@ -487,6 +488,125 @@ func toAdminAPIErrCode(err error) APIErrorCode {
 	default:
 		return toAPIErrorCode(err)
 	}
+}
+
+// GetIAMHanlder - GET /minio/admin/v1/iam
+func (a adminAPIHandlers) GetIAMHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "GetIAMHandler")
+
+	// Get current object layer instance.
+	objectAPI := newObjectLayerFn()
+	if objectAPI == nil {
+		writeErrorResponseJSON(w, ErrServerNotInitialized, r.URL)
+		return
+	}
+
+	// Validate request signature.
+	adminAPIErr := checkAdminRequestAuthType(r, "")
+	if adminAPIErr != ErrNone {
+		writeErrorResponseJSON(w, adminAPIErr, r.URL)
+		return
+	}
+
+	config, err := readIAMConfig(ctx, objectAPI)
+	if err != nil {
+		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
+		return
+	}
+
+	configData, err := json.Marshal(config)
+	if err != nil {
+		logger.LogIf(ctx, err)
+		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
+		return
+	}
+
+	password := globalServerConfig.GetCredential().SecretKey
+	econfigData, err := madmin.EncryptServerConfigData(password, configData)
+	if err != nil {
+		logger.LogIf(ctx, err)
+		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
+		return
+	}
+
+	writeSuccessResponseJSON(w, econfigData)
+}
+
+// SetIAMHandler - PUT /minio/admin/v1/iam
+func (a adminAPIHandlers) SetIAMHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "SetIAMHandler")
+
+	// Get current object layer instance.
+	objectAPI := newObjectLayerFn()
+	if objectAPI == nil {
+		writeErrorResponseJSON(w, ErrServerNotInitialized, r.URL)
+		return
+	}
+
+	// Validate request signature.
+	adminAPIErr := checkAdminRequestAuthType(r, "")
+	if adminAPIErr != ErrNone {
+		writeErrorResponseJSON(w, adminAPIErr, r.URL)
+		return
+	}
+
+	// Read configuration bytes from request body.
+	configBuf := make([]byte, maxConfigJSONSize+1)
+	n, err := io.ReadFull(r.Body, configBuf)
+	if err == nil {
+		// More than maxConfigSize bytes were available
+		writeErrorResponseJSON(w, ErrAdminConfigTooLarge, r.URL)
+		return
+	}
+	if err != io.ErrUnexpectedEOF {
+		logger.LogIf(ctx, err)
+		writeErrorResponseJSON(w, toAPIErrorCode(err), r.URL)
+		return
+	}
+
+	password := globalServerConfig.GetCredential().SecretKey
+	configBytes, err := madmin.DecryptServerConfigData(password, bytes.NewReader(configBuf[:n]))
+	if err != nil {
+		logger.LogIf(ctx, err)
+		writeErrorResponseJSON(w, ErrAdminConfigBadJSON, r.URL)
+		return
+	}
+
+	// Validate JSON provided in the request body: check the
+	// client has not sent JSON objects with duplicate keys.
+	if err = quick.CheckDuplicateKeys(string(configBytes)); err != nil {
+		writeErrorResponseJSON(w, ErrAdminConfigDuplicateKeys, r.URL)
+		return
+	}
+
+	iamConfig, err := iam.New()
+	if err != nil {
+		logger.LogIf(ctx, err)
+		writeCustomErrorResponseJSON(w, ErrAdminConfigBadJSON, err.Error(), r.URL)
+		return
+	}
+
+	if err = json.Unmarshal(configBytes, iamConfig); err != nil {
+		logger.LogIf(ctx, err)
+		writeCustomErrorResponseJSON(w, ErrAdminConfigBadJSON, err.Error(), r.URL)
+		return
+	}
+
+	if err = iamConfig.Validate(); err != nil {
+		logger.LogIf(ctx, err)
+		writeCustomErrorResponseJSON(w, ErrAdminConfigBadJSON, err.Error(), r.URL)
+		return
+	}
+
+	if err = saveIAMConfig(objectAPI, iamConfig); err != nil {
+		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
+		return
+	}
+
+	// Reply to the client before restarting minio server.
+	writeSuccessResponseHeadersOnly(w)
+
+	sendServiceCmd(globalAdminPeers, serviceRestart)
 }
 
 // SetConfigHandler - PUT /minio/admin/v1/config
