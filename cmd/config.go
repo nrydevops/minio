@@ -148,7 +148,7 @@ func initConfig(objAPI ObjectLayer) error {
 			}
 
 			// Migrates etcd ${HOME}/.minio/config.json to '/config/config.json'
-			if err := migrateConfigToMinioSys(); err != nil {
+			if err := migrateConfigToMinioSys(objAPI); err != nil {
 				return err
 			}
 		}

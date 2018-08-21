@@ -469,7 +469,7 @@ func (a adminAPIHandlers) GetConfigHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	password := config.GetCredential().SecretKey
-	econfigData, err := madmin.EncryptServerConfigData(password, configData)
+	econfigData, err := madmin.EncryptData(password, configData)
 	if err != nil {
 		logger.LogIf(ctx, err)
 		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
@@ -490,7 +490,7 @@ func toAdminAPIErrCode(err error) APIErrorCode {
 	}
 }
 
-// GetIAMHanlder - GET /minio/admin/v1/iam
+// GetIAMHandler - GET /minio/admin/v1/iam
 func (a adminAPIHandlers) GetIAMHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w, "GetIAMHandler")
 
@@ -522,7 +522,7 @@ func (a adminAPIHandlers) GetIAMHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	password := globalServerConfig.GetCredential().SecretKey
-	econfigData, err := madmin.EncryptServerConfigData(password, configData)
+	econfigData, err := madmin.EncryptData(password, configData)
 	if err != nil {
 		logger.LogIf(ctx, err)
 		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
@@ -565,7 +565,7 @@ func (a adminAPIHandlers) SetIAMHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	password := globalServerConfig.GetCredential().SecretKey
-	configBytes, err := madmin.DecryptServerConfigData(password, bytes.NewReader(configBuf[:n]))
+	configBytes, err := madmin.DecryptData(password, bytes.NewReader(configBuf[:n]))
 	if err != nil {
 		logger.LogIf(ctx, err)
 		writeErrorResponseJSON(w, ErrAdminConfigBadJSON, r.URL)
@@ -642,7 +642,7 @@ func (a adminAPIHandlers) SetConfigHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	password := globalServerConfig.GetCredential().SecretKey
-	configBytes, err := madmin.DecryptServerConfigData(password, bytes.NewReader(configBuf[:n]))
+	configBytes, err := madmin.DecryptData(password, bytes.NewReader(configBuf[:n]))
 	if err != nil {
 		logger.LogIf(ctx, err)
 		writeErrorResponseJSON(w, ErrAdminConfigBadJSON, r.URL)
@@ -737,7 +737,7 @@ func (a adminAPIHandlers) UpdateCredentialsHandler(w http.ResponseWriter,
 	}
 
 	password := globalServerConfig.GetCredential().SecretKey
-	configBytes, err := madmin.DecryptServerConfigData(password, bytes.NewReader(configBuf[:n]))
+	configBytes, err := madmin.DecryptData(password, bytes.NewReader(configBuf[:n]))
 	if err != nil {
 		logger.LogIf(ctx, err)
 		writeErrorResponseJSON(w, ErrAdminConfigBadJSON, r.URL)

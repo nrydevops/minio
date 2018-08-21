@@ -1,5 +1,3 @@
-// +build ignore
-
 /*
  * Minio Cloud Storage, (C) 2018 Minio, Inc.
  *
@@ -19,6 +17,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"encoding/xml"
 	"flag"
@@ -26,6 +25,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/minio/minio/pkg/auth"
 )
@@ -58,40 +58,86 @@ type ClientGrantsResult struct {
 	SubjectFromClientGrantsToken string           `xml:",omitempty"`
 }
 
-var endpoint string
-var token string
+// JWTToken - parses the output from IDP access token.
+type JWTToken struct {
+	AccessToken string `json:"access_token"`
+	Expiry      int    `json:"expires_in"`
+}
+
+var (
+	stsEndpoint  string
+	idpEndpoint  string
+	clientID     string
+	clientSecret string
+)
 
 func init() {
-	flag.StringVar(&endpoint, "ep", "http://localhost:9000", "STS endpoint")
-	flag.StringVar(&token, "t", "", "JWT access token from your identity provider")
+	flag.StringVar(&stsEndpoint, "sts-ep", "http://localhost:9000", "STS endpoint")
+	flag.StringVar(&idpEndpoint, "idp-ep", "https://localhost:9443/oauth2/token", "IDP endpoint")
+	flag.StringVar(&clientID, "cid", "", "Client ID")
+	flag.StringVar(&clientSecret, "csec", "", "Client secret")
 }
 
 func main() {
 	flag.Parse()
-	if token == "" {
+	if clientID == "" || clientSecret == "" {
 		flag.PrintDefaults()
 		return
 	}
 
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	req, err := http.NewRequest(http.MethodPost, idpEndpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		log.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(clientID, clientSecret)
+	t := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	hclient := http.Client{
+		Transport: t,
+	}
+	resp, err := hclient.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Fatal(resp.Status)
+	}
+
+	var idpToken JWTToken
+	if err = json.NewDecoder(resp.Body).Decode(&idpToken); err != nil {
+		log.Fatal(err)
+	}
+
 	v := url.Values{}
 	v.Set("Action", "AssumeRoleWithClientGrants")
-	v.Set("Token", token)
+	v.Set("Token", idpToken.AccessToken)
+	v.Set("DurationSeconds", fmt.Sprintf("%d", idpToken.Expiry))
 
-	u, err := url.Parse(endpoint)
+	u, err := url.Parse(stsEndpoint)
 	if err != nil {
 		log.Fatal(err)
 	}
 	u.RawQuery = v.Encode()
 
-	req, err := http.NewRequest("POST", u.String(), nil)
+	req, err = http.NewRequest("POST", u.String(), nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Fatal(resp.Status)
+	}
 
 	a := AssumeRoleWithClientGrantsResponse{}
 	if err = xml.NewDecoder(resp.Body).Decode(&a); err != nil {

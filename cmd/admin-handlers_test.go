@@ -593,7 +593,7 @@ func TestServiceSetCreds(t *testing.T) {
 			t.Fatalf("JSONify err: %v", err)
 		}
 
-		ebody, err := madmin.EncryptServerConfigData(credentials.SecretKey, body)
+		ebody, err := madmin.EncryptData(credentials.SecretKey, body)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -700,7 +700,7 @@ func TestSetConfigHandler(t *testing.T) {
 	queryVal.Set("config", "")
 
 	password := globalServerConfig.GetCredential().SecretKey
-	econfigJSON, err := madmin.EncryptServerConfigData(password, configJSON)
+	econfigJSON, err := madmin.EncryptData(password, configJSON)
 	if err != nil {
 		t.Fatal(err)
 	}

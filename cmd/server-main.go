@@ -341,7 +341,7 @@ func serverMain(ctx *cli.Context) {
 
 	// Create new IAM system.
 	globalIAMSys = NewIAMSys()
-	if err := globalIAMSys.Init(newObjectLayerFn()); err != nil {
+	if err := globalIAMSys.Init(newObject); err != nil {
 		logger.Fatal(err, "Unable to initialize IAM system")
 	}
 

@@ -37,7 +37,7 @@ func (adm *AdminClient) SetCredentials(access, secret string) error {
 		return err
 	}
 
-	ebody, err := EncryptServerConfigData(adm.secretAccessKey, body)
+	ebody, err := EncryptData(adm.secretAccessKey, body)
 	if err != nil {
 		return err
 	}

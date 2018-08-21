@@ -36,11 +36,10 @@ func main() {
 
 ```
 
-| Service operations         | Info operations  | Healing operations                    | Config operations         | Misc                                |
-|:----------------------------|:----------------------------|:--------------------------------------|:--------------------------|:------------------------------------|
-| [`ServiceStatus`](#ServiceStatus) | [`ServerInfo`](#ServerInfo) | [`Heal`](#Heal) | [`GetConfig`](#GetConfig) | [`SetCredentials`](#SetCredentials) |
-| [`ServiceSendAction`](#ServiceSendAction) | | | [`SetConfig`](#SetConfig) | |
-
+| Service operations         | Info operations  | Healing operations                    | Config operations         | IAM operations | Misc                                |
+|:----------------------------|:----------------------------|:--------------------------------------|:--------------------------|:------------------------------------|:------------------------------------|
+| [`ServiceStatus`](#ServiceStatus) | [`ServerInfo`](#ServerInfo) | [`Heal`](#Heal) | [`GetConfig`](#GetConfig) | [`GetIAMConfig()`](#GetIAMConfig) | [`SetCredentials`](#SetCredentials) |
+| [`ServiceSendAction`](#ServiceSendAction) | | | [`SetConfig`](#SetConfig) | [`SetIAMConfig`](#SetIAMConfig) | |
 
 ## 1. Constructor
 <a name="Minio"></a>
@@ -271,7 +270,7 @@ __Example__
 
 <a name="GetConfig"></a>
 ### GetConfig() ([]byte, error)
-Get config.json of a minio setup.
+Get current `config.json` of a Minio server.
 
 __Example__
 
@@ -293,40 +292,59 @@ __Example__
 
 
 <a name="SetConfig"></a>
-### SetConfig(config io.Reader) (SetConfigResult, error)
-Set config.json of a minio setup and restart setup for configuration
-change to take effect.
-
-
-| Param  | Type  | Description  |
-|---|---|---|
-|`st.Status`            | _bool_  | true if set-config succeeded, false otherwise. |
-|`st.NodeSummary.Name`  | _string_  | Network address of the node. |
-|`st.NodeSummary.ErrSet`   | _bool_ | Bool representation indicating if an error is encountered with the node.|
-|`st.NodeSummary.ErrMsg`   | _string_ | String representation of the error (if any) on the node.|
-
+### SetConfig(config io.Reader) error
+Set a new `config.json` for a Minio server.
 
 __Example__
 
 ``` go
     config := bytes.NewReader([]byte(`config.json contents go here`))
-    result, err := madmClnt.SetConfig(config)
+    if err := madmClnt.SetConfig(config); err != nil {
+        log.Fatalf("failed due to: %v", err)
+    }
+    log.Println("SetConfig was successful")
+```
+
+## 8. IAM operations
+
+<a name="GetIAMConfig"></a>
+### GetIAMConfig() ([]byte, error)
+Get current IAM configuration of a Minio server.
+
+__Example__
+
+``` go
+    configBytes, err := madmClnt.GetIAMConfig()
     if err != nil {
         log.Fatalf("failed due to: %v", err)
     }
 
+    // Pretty-print config received as json.
     var buf bytes.Buffer
-    enc := json.NewEncoder(&buf)
-    enc.SetEscapeHTML(false)
-    enc.SetIndent("", "\t")
-    err = enc.Encode(result)
+    err = json.Indent(buf, configBytes, "", "\t")
     if err != nil {
-        log.Fatalln(err)
+        log.Fatalf("failed due to: %v", err)
     }
-    log.Println("SetConfig: ", string(buf.Bytes()))
+
+    log.Println("Config received successfully: ", string(buf.Bytes()))
 ```
 
-## 8. Misc operations
+
+<a name="SetIAMConfig"></a>
+### SetIAMConfig(config io.Reader) error
+Set a new IAM configuration for a Minio server.
+
+__Example__
+
+``` go
+    config := bytes.NewReader([]byte(`iam.json contents go here`))
+    if err := madmClnt.SetIAMConfig(config); err != nil {
+        log.Fatalf("failed due to: %v", err)
+    }
+    log.Println("SetIAMConfig was successful")
+```
+
+## 9. Misc operations
 
 <a name="SetCredentials"></a>
 ### SetCredentials() error

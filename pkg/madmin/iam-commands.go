@@ -1,3 +1,20 @@
+/*
+ * Minio Cloud Storage, (C) 2018 Minio, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
 package madmin
 
 import (
@@ -10,9 +27,10 @@ import (
 	"github.com/minio/minio/pkg/quick"
 )
 
-// GetIAM - returns the config.json of a minio setup, incoming data is encrypted.
-func (adm *AdminClient) GetIAM() ([]byte, error) {
-	// Execute GET on /minio/admin/v1/config to get config of a setup.
+// GetIAMConfig - retrieves IAM configuration from a Minio server, automatically decrypts
+// the incoming encrypted content as well.
+func (adm *AdminClient) GetIAMConfig() ([]byte, error) {
+	// Execute GET on /minio/admin/v1/iam to get IAM config.
 	resp, err := adm.executeMethod("GET",
 		requestData{relPath: "/v1/iam"})
 	defer closeResponse(resp)
@@ -25,12 +43,12 @@ func (adm *AdminClient) GetIAM() ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	return DecryptServerConfigData(adm.secretAccessKey, resp.Body)
+	return DecryptData(adm.secretAccessKey, resp.Body)
 }
 
-// SetIAM - set config supplied as config.json for the setup.
-func (adm *AdminClient) SetIAM(config io.Reader) (err error) {
-	const maxConfigJSONSize = 256 * 1024 // 256KiB
+// SetIAMConfig - set IAM configuration supplied as Reader.
+func (adm *AdminClient) SetIAMConfig(config io.Reader) (err error) {
+	const maxConfigJSONSize = 1 * 1024 * 1024 // 1MiB
 
 	// Read configuration bytes
 	configBuf := make([]byte, maxConfigJSONSize+1)
@@ -62,7 +80,7 @@ func (adm *AdminClient) SetIAM(config io.Reader) (err error) {
 		return errors.New("Duplicate key in json file: " + err.Error())
 	}
 
-	econfigBytes, err := EncryptServerConfigData(adm.secretAccessKey, configBytes)
+	econfigBytes, err := EncryptData(adm.secretAccessKey, configBytes)
 	if err != nil {
 		return err
 	}
@@ -72,7 +90,7 @@ func (adm *AdminClient) SetIAM(config io.Reader) (err error) {
 		content: econfigBytes,
 	}
 
-	// Execute PUT on /minio/admin/v1/config to set config.
+	// Execute PUT on /minio/admin/v1/iam to set IAM config.
 	resp, err := adm.executeMethod("PUT", reqData)
 
 	defer closeResponse(resp)

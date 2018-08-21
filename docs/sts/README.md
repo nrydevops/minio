@@ -1,4 +1,4 @@
-## Minio STS
+# Minio STS Quickstart Guide [![Slack](https://slack.minio.io/slack?type=svg)](https://slack.minio.io)
 The Minio Security Token Service (STS) is an endpoint service that enables you to request temporary credentials for your Minio resources. Temporary credentials work almost identically to your default admin credentials, with some differences:
 
 - Temporary credentials are short-term, as the name implies. They can be configured to last for anywhere from a few minutes to several hours. After the credentials expire, Minio no longer recognizes them or allows any kind of access from API requests made with them.
@@ -10,6 +10,42 @@ Following are advantages for using temporary credentials:
 - You can provide access to buckets and objects without having to define static credentials.
 - Temporary credentials have a limited lifetime, so you do not have to rotate them or explicitly revoke them when they're no longer needed. After temporary credentials expire, they cannot be reused.
 
-### Identity Federation
+## Identity Federation
+[**Client grants**](./client-grants.md) - You can let applications request `client_grants` using any well-known third party identity provider such as Keycloak, WSO2. You can exchange the credentials from that provider for temporary credentials for Minio API. This is known as the client grants approach to temporary access. Using this approach helps you keep your Minio secure, because you don't have to distribute admin credentials. Minio STS client grants supports WSO2, Keycloak.
 
-- [**Client grants**](./client-grants.md) - You can let users sign in using a well-known third party identity provider such as WSO2, Keycloak. You can exchange the credentials from that provider for temporary permissions for Minio API. This is known as the client grants approach to temporary access. Using this approach helps you keep your Minio secure, because you don't have to distribute admin credentials. Minio STS client grants supports WSO2, Keycloak.
+## Get started
+In this document we will explain in detail on how to configure all the prerequisites, primarily WSO2, etcd.v3 and OPA (open policy agent).
+
+### 1. Prerequisites
+- [Configuring wso2](./wso2.md)
+- [Configuring opa](./opa.md)
+- [Configuring etcd](./etcd.md)
+
+### 2. Setup Minio with wso2, opa and etcd
+Make sure we have followed the previous step and configured each software independently, once done we can now proceed to use Minio STS API and Minio server to use these credentials to perform object API operations.
+
+```
+export MINIO_ETCD_ENDPOINTS=127.0.0.1:2379
+export MINIO_IAM_JWKS_URL=https://localhost:9443/oauth2/jwks
+export MINIO_IAM_OPA_URL=http://localhost:8181/v1/data/httpapi/authz
+minio server /mnt/data
+```
+
+### 3. Test using full-example.go
+On another terminal run `full-example.go` a sample client application which obtains JWT access tokens from an identity provider, in our case its WSO2. Uses the returned access token response to get new temporary credentials from the Minio server using the STS API call `AssumeRoleWithClientGrants`.
+
+```
+go run full-example.go -cid PoEgXP6uVO45IsENRngDXj5Au5Ya -csec eKsw6z8CtOJVBtrOWvhRWL4TUCga
+
+##### Credentials
+{
+	"accessKey": "NUIBORZYTV2HG2BMRSXR",
+	"secretKey": "qQlP5O7CFPc5m5IXf1vYhuVTFj7BRVJqh0FqZ86S",
+	"expiration": "2018-08-21T17:10:29-07:00",
+	"sessionToken": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3NLZXkiOiJOVUlCT1JaWVRWMkhHMkJNUlNYUiIsImF1ZCI6IlBvRWdYUDZ1Vk80NUlzRU5SbmdEWGo1QXU1WWEiLCJhenAiOiJQb0VnWFA2dVZPNDVJc0VOUm5nRFhqNUF1NVlhIiwiZXhwIjoxNTM0ODk2NjI5LCJpYXQiOjE1MzQ4OTMwMjksImlzcyI6Imh0dHBzOi8vbG9jYWxob3N0Ojk0NDMvb2F1dGgyL3Rva2VuIiwianRpIjoiNjY2OTZjZTctN2U1Ny00ZjU5LWI0MWQtM2E1YTMzZGZiNjA4In0.eJONnVaSVHypiXKEARSMnSKgr-2mlC2Sr4fEGJitLcJF_at3LeNdTHv0_oHsv6ZZA3zueVGgFlVXMlREgr9LXA"
+}
+```
+
+## Explore Further
+- [Minio STS Quickstart Guide](https://docs.minio.io/docs/minio-sts-quickstart-guide)
+- [The Minio documentation website](https://docs.minio.io)
