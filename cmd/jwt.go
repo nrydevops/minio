@@ -156,43 +156,52 @@ func parseJWTWithClaims(tokenString string, claims jwtgo.Claims) (*jwtgo.Token, 
 	return jwtToken, nil
 }
 
-func isAuthTokenValid(tokenString string) bool {
-	if tokenString == "" {
-		return false
-	}
+func isAuthTokenValid(token string) bool {
+	_, err := webTokenAthenticate(token)
+	return err == nil
+}
+
+func webTokenAthenticate(token string) (jwtgo.StandardClaims, error) {
 	var claims = jwtgo.StandardClaims{}
-	jwtToken, err := parseJWTWithClaims(tokenString, &claims)
-	if err != nil {
-		logger.LogIf(context.Background(), err)
-		return false
+	if token == "" {
+		return claims, errNoAuthToken
 	}
-	return jwtToken.Valid && claims.Subject == globalServerConfig.GetCredential().AccessKey
+
+	jwtToken, err := parseJWTWithClaims(token, &claims)
+	if err != nil {
+		return claims, err
+	}
+	if !jwtToken.Valid {
+		return claims, errAuthentication
+	}
+	return claims, nil
 }
 
 func isHTTPRequestValid(req *http.Request) bool {
-	return webRequestAuthenticate(req) == nil
+	_, err := webRequestAuthenticate(req)
+	return err == nil
 }
 
 // Check if the request is authenticated.
 // Returns nil if the request is authenticated. errNoAuthToken if token missing.
 // Returns errAuthentication for all other errors.
-func webRequestAuthenticate(req *http.Request) error {
+func webRequestAuthenticate(req *http.Request) (jwtgo.StandardClaims, error) {
+	var claims = jwtgo.StandardClaims{}
 	tokStr, err := jwtreq.AuthorizationHeaderExtractor.ExtractToken(req)
 	if err != nil {
 		if err == jwtreq.ErrNoTokenInRequest {
-			return errNoAuthToken
+			return claims, errNoAuthToken
 		}
-		return err
+		return claims, err
 	}
-	var claims = jwtgo.StandardClaims{}
 	jwtToken, err := parseJWTWithClaims(tokStr, &claims)
 	if err != nil {
-		return err
+		return claims, err
 	}
 	if !jwtToken.Valid {
-		return errAuthentication
+		return claims, errAuthentication
 	}
-	return nil
+	return claims, nil
 }
 
 func newAuthToken() string {
