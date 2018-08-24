@@ -188,7 +188,6 @@ var (
 	// Set to store standard storage class
 	globalStandardStorageClass storageClass
 
-	globalIsEnvWORM bool
 	// Is worm enabled
 	globalWORMEnabled bool
 

@@ -442,7 +442,7 @@ func resetGlobalIsXL() {
 
 func resetGlobalIsEnvs() {
 	globalIsEnvCreds = false
-	globalIsEnvWORM = false
+	globalWORMEnabled = false
 	globalIsEnvBrowser = false
 	globalIsEnvRegion = false
 	globalIsStorageClass = false
