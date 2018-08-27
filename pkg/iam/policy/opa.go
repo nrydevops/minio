@@ -20,7 +20,9 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"net"
 	"net/http"
+	"time"
 
 	xnet "github.com/minio/minio/pkg/net"
 )
@@ -38,8 +40,31 @@ func (a *OpaArgs) Validate() error {
 
 // Opa - implements opa policy agent calls.
 type Opa struct {
-	args   OpaArgs
-	client *http.Client
+	args            OpaArgs
+	secureFailed    bool
+	client          *http.Client
+	insecuretClient *http.Client
+}
+
+// newCustomHTTPTransport returns a new http configuration
+// used while communicating with the cloud backends.
+// This sets the value for MaxIdleConnsPerHost from 2 (go default)
+// to 100.
+func newCustomHTTPTransport(insecure bool) *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          1024,
+		MaxIdleConnsPerHost:   1024,
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: insecure},
+		DisableCompression:    true,
+	}
 }
 
 // NewOpa - initializes opa policy engine connector.
@@ -48,11 +73,10 @@ func NewOpa(args OpaArgs) *Opa {
 	if args.URL == nil && args.AuthToken == "" {
 		return nil
 	}
-	t := http.DefaultTransport.(*http.Transport)
-	t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	return &Opa{
-		args:   args,
-		client: &http.Client{Transport: t},
+		args:            args,
+		client:          &http.Client{Transport: newCustomHTTPTransport(false)},
+		insecuretClient: &http.Client{Transport: newCustomHTTPTransport(true)},
 	}
 }
 
@@ -77,9 +101,18 @@ func (o *Opa) IsAllowed(args Args) bool {
 		req.Header.Set("Authorization", o.args.AuthToken)
 	}
 
-	resp, err := o.client.Do(req)
-	if err != nil {
-		return false
+	var resp *http.Response
+	if o.secureFailed {
+		resp, err = o.insecuretClient.Do(req)
+	} else {
+		resp, err = o.client.Do(req)
+		if err != nil {
+			o.secureFailed = true
+			resp, err = o.insecuretClient.Do(req)
+			if err != nil {
+				return false
+			}
+		}
 	}
 	defer resp.Body.Close()
 

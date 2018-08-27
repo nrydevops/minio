@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -60,13 +61,14 @@ func (r *JWTArgs) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	t := http.DefaultTransport.(*http.Transport)
-	t.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-
-	client := &http.Client{Transport: t}
+	insecureClient := &http.Client{Transport: newCustomHTTPTransport(true)}
+	client := &http.Client{Transport: newCustomHTTPTransport(false)}
 	resp, err := client.Get(ar.WebKeyURL.String())
 	if err != nil {
-		return err
+		resp, err = insecureClient.Get(ar.WebKeyURL.String())
+		if err != nil {
+			return err
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -123,6 +125,27 @@ func getDefaultExpiration(r *http.Request) (time.Duration, error) {
 		defaultExpiryDuration = time.Duration(expirySecs) * time.Second
 	}
 	return defaultExpiryDuration, nil
+}
+
+// newCustomHTTPTransport returns a new http configuration
+// used while communicating with the cloud backends.
+// This sets the value for MaxIdleConnsPerHost from 2 (go default)
+// to 100.
+func newCustomHTTPTransport(insecure bool) *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          1024,
+		MaxIdleConnsPerHost:   1024,
+		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: insecure},
+		DisableCompression:    true,
+	}
 }
 
 // Validate - validates the access token.
