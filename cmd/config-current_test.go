@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path"
 	"testing"
@@ -51,7 +52,7 @@ func TestServerConfig(t *testing.T) {
 		t.Errorf("Expecting version %s found %s", globalServerConfig.GetVersion(), serverConfigVersion)
 	}
 
-	if err := saveServerConfig(objLayer, globalServerConfig); err != nil {
+	if err := saveServerConfig(context.Background(), objLayer, globalServerConfig); err != nil {
 		t.Fatalf("Unable to save updated config file %s", err)
 	}
 
@@ -231,7 +232,7 @@ func TestValidateConfig(t *testing.T) {
 	}
 
 	for i, testCase := range testCases {
-		if err = saveConfig(objLayer, configPath, []byte(testCase.configData)); err != nil {
+		if err = saveConfig(context.Background(), objLayer, configPath, []byte(testCase.configData)); err != nil {
 			t.Fatal(err)
 		}
 		_, err = getValidConfig(objLayer)

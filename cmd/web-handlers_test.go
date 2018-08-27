@@ -1291,7 +1291,7 @@ func testWebGetBucketPolicyHandler(obj ObjectLayer, instanceType string, t TestE
 		},
 	}
 
-	if err = savePolicyConfig(obj, bucketName, bucketPolicy); err != nil {
+	if err = savePolicyConfig(context.Background(), obj, bucketName, bucketPolicy); err != nil {
 		t.Fatal("Unexpected error: ", err)
 	}
 
@@ -1391,7 +1391,7 @@ func testWebListAllBucketPoliciesHandler(obj ObjectLayer, instanceType string, t
 		},
 	}
 
-	if err = savePolicyConfig(obj, bucketName, bucketPolicy); err != nil {
+	if err = savePolicyConfig(context.Background(), obj, bucketName, bucketPolicy); err != nil {
 		t.Fatal("Unexpected error: ", err)
 	}
 

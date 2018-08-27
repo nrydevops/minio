@@ -20,15 +20,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"time"
 
+	etcd "github.com/coreos/etcd/clientv3"
 	"github.com/minio/minio/cmd/logger"
 	"github.com/minio/minio/pkg/hash"
 )
 
 var errConfigNotFound = errors.New("config file not found")
 
-func readConfig(ctx context.Context, objAPI ObjectLayer, configFile string) (*bytes.Buffer, error) {
+func readConfig(ctx context.Context, objAPI ObjectLayer, configFile string) ([]byte, error) {
 	var buffer bytes.Buffer
 	// Read entire content by setting size to -1
 	if err := objAPI.GetObject(ctx, minioMetaBucket, configFile, 0, -1, &buffer, ""); err != nil {
@@ -47,23 +47,21 @@ func readConfig(ctx context.Context, objAPI ObjectLayer, configFile string) (*by
 		return nil, errConfigNotFound
 	}
 
-	return &buffer, nil
+	return buffer.Bytes(), nil
 }
 
-func saveConfig(objAPI ObjectLayer, configFile string, data []byte) error {
+func saveConfig(ctx context.Context, objAPI ObjectLayer, configFile string, data []byte) error {
 	hashReader, err := hash.NewReader(bytes.NewReader(data), int64(len(data)), "", getSHA256Hash(data))
 	if err != nil {
 		return err
 	}
 
-	_, err = objAPI.PutObject(context.Background(), minioMetaBucket, configFile, hashReader, nil)
+	_, err = objAPI.PutObject(ctx, minioMetaBucket, configFile, hashReader, nil)
 	return err
 }
 
-func readConfigEtcd(configFile string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	resp, err := globalEtcdClient.Get(ctx, configFile)
-	defer cancel()
+func readConfigEtcd(ctx context.Context, client *etcd.Client, configFile string) ([]byte, error) {
+	resp, err := client.Get(ctx, configFile)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +89,8 @@ func watchConfig(objAPI ObjectLayer, configFile string, loadCfgFn func(ObjectLay
 	}
 }
 
-func checkConfigEtcd(configFile string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+func checkConfigEtcd(ctx context.Context, client *etcd.Client, configFile string) error {
 	resp, err := globalEtcdClient.Get(ctx, configFile)
-	defer cancel()
 	if err != nil {
 		return err
 	}
@@ -104,9 +100,9 @@ func checkConfigEtcd(configFile string) error {
 	return nil
 }
 
-func checkConfig(ctx context.Context, configFile string, objAPI ObjectLayer) error {
+func checkConfig(ctx context.Context, objAPI ObjectLayer, configFile string) error {
 	if globalEtcdClient != nil {
-		return checkConfigEtcd(configFile)
+		return checkConfigEtcd(ctx, globalEtcdClient, configFile)
 	}
 
 	if _, err := objAPI.GetObjectInfo(ctx, minioMetaBucket, configFile); err != nil {

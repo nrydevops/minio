@@ -17,6 +17,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -115,7 +116,7 @@ func (sys *PolicySys) refresh(objAPI ObjectLayer) error {
 			logger.Info("Found in-consistent bucket policies, Migrating them for Bucket: (%s)", bucket.Name)
 			config.Version = policy.DefaultVersion
 
-			if err = savePolicyConfig(objAPI, bucket.Name, config); err != nil {
+			if err = savePolicyConfig(context.Background(), objAPI, bucket.Name, config); err != nil {
 				logger.LogIf(context.Background(), err)
 				return err
 			}
@@ -192,7 +193,7 @@ func getPolicyConfig(objAPI ObjectLayer, bucketName string) (*policy.Policy, err
 	// Construct path to policy.json for the given bucket.
 	configFile := path.Join(bucketConfigPrefix, bucketName, bucketPolicyConfig)
 
-	reader, err := readConfig(context.Background(), objAPI, configFile)
+	configData, err := readConfig(context.Background(), objAPI, configFile)
 	if err != nil {
 		if err == errConfigNotFound {
 			err = BucketPolicyNotFound{Bucket: bucketName}
@@ -201,10 +202,10 @@ func getPolicyConfig(objAPI ObjectLayer, bucketName string) (*policy.Policy, err
 		return nil, err
 	}
 
-	return policy.ParseConfig(reader, bucketName)
+	return policy.ParseConfig(bytes.NewReader(configData), bucketName)
 }
 
-func savePolicyConfig(objAPI ObjectLayer, bucketName string, bucketPolicy *policy.Policy) error {
+func savePolicyConfig(ctx context.Context, objAPI ObjectLayer, bucketName string, bucketPolicy *policy.Policy) error {
 	data, err := json.Marshal(bucketPolicy)
 	if err != nil {
 		return err
@@ -213,7 +214,7 @@ func savePolicyConfig(objAPI ObjectLayer, bucketName string, bucketPolicy *polic
 	// Construct path to policy.json for the given bucket.
 	configFile := path.Join(bucketConfigPrefix, bucketName, bucketPolicyConfig)
 
-	return saveConfig(objAPI, configFile, data)
+	return saveConfig(ctx, objAPI, configFile, data)
 }
 
 func removePolicyConfig(ctx context.Context, objAPI ObjectLayer, bucketName string) error {

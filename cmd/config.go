@@ -20,8 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
-	"io/ioutil"
 	"path"
 	"runtime"
 	"time"
@@ -36,7 +34,7 @@ const (
 	minioConfigFile = "config.json"
 )
 
-func saveServerConfig(objAPI ObjectLayer, config *serverConfig) error {
+func saveServerConfig(ctx context.Context, objAPI ObjectLayer, config *serverConfig) error {
 	if err := quick.CheckData(config); err != nil {
 		return err
 	}
@@ -48,28 +46,22 @@ func saveServerConfig(objAPI ObjectLayer, config *serverConfig) error {
 
 	configFile := path.Join(minioConfigPrefix, minioConfigFile)
 	if globalEtcdClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		_, err := globalEtcdClient.Put(ctx, configFile, string(data))
-		defer cancel()
 		return err
 	}
 
-	return saveConfig(objAPI, configFile, data)
+	return saveConfig(ctx, objAPI, configFile, data)
 }
 
 func readServerConfig(ctx context.Context, objAPI ObjectLayer) (*serverConfig, error) {
 	var configData []byte
 	var err error
+
 	configFile := path.Join(minioConfigPrefix, minioConfigFile)
 	if globalEtcdClient != nil {
-		configData, err = readConfigEtcd(configFile)
+		configData, err = readConfigEtcd(ctx, globalEtcdClient, configFile)
 	} else {
-		var reader io.Reader
-		reader, err = readConfig(ctx, objAPI, configFile)
-		if err != nil {
-			return nil, err
-		}
-		configData, err = ioutil.ReadAll(reader)
+		configData, err = readConfig(ctx, objAPI, configFile)
 	}
 	if err != nil {
 		return nil, err
@@ -120,7 +112,7 @@ func NewConfigSys() *ConfigSys {
 func migrateConfigToMinioSys(objAPI ObjectLayer) error {
 	configFile := path.Join(minioConfigPrefix, minioConfigFile)
 	// Verify if backend already has the file.
-	if err := checkConfig(context.Background(), configFile, objAPI); err != errConfigNotFound {
+	if err := checkConfig(context.Background(), objAPI, configFile); err != errConfigNotFound {
 		return err
 	} // if errConfigNotFound proceed to migrate..
 
@@ -129,7 +121,7 @@ func migrateConfigToMinioSys(objAPI ObjectLayer) error {
 		return err
 	}
 
-	return saveServerConfig(objAPI, config)
+	return saveServerConfig(context.Background(), objAPI, config)
 }
 
 // Initialize and load config from remote etcd or local config directory
@@ -169,7 +161,7 @@ func initConfig(objAPI ObjectLayer) error {
 	// Watch config for changes and reloads them in-memory.
 	go watchConfig(objAPI, configFile, loadConfig)
 
-	if err := checkConfig(context.Background(), configFile, objAPI); err != nil {
+	if err := checkConfig(context.Background(), objAPI, configFile); err != nil {
 		if err == errConfigNotFound {
 			// Config file does not exist, we create it fresh and return upon success.
 			if err = newSrvConfig(objAPI); err != nil {

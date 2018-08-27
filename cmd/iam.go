@@ -20,8 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
-	"io/ioutil"
 	"path"
 	"runtime"
 	"sync"
@@ -55,7 +53,7 @@ var (
 	globalIAMValidatorsMu sync.RWMutex
 )
 
-func saveIAMConfig(objAPI ObjectLayer, cfg *iam.IAM) error {
+func saveIAMConfig(ctx context.Context, objAPI ObjectLayer, cfg *iam.IAM) error {
 	if err := quick.CheckData(cfg); err != nil {
 		return err
 	}
@@ -67,13 +65,11 @@ func saveIAMConfig(objAPI ObjectLayer, cfg *iam.IAM) error {
 
 	configFile := path.Join(iamConfigPrefix, iamConfigFile)
 	if globalEtcdClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		_, err := globalEtcdClient.Put(ctx, configFile, string(data))
-		defer cancel()
 		return err
 	}
 
-	return saveConfig(objAPI, configFile, data)
+	return saveConfig(ctx, objAPI, configFile, data)
 }
 
 func readIAMConfig(ctx context.Context, objAPI ObjectLayer) (*iam.IAM, error) {
@@ -81,14 +77,9 @@ func readIAMConfig(ctx context.Context, objAPI ObjectLayer) (*iam.IAM, error) {
 	var err error
 	configFile := path.Join(iamConfigPrefix, iamConfigFile)
 	if globalEtcdClient != nil {
-		configData, err = readConfigEtcd(configFile)
+		configData, err = readConfigEtcd(ctx, globalEtcdClient, configFile)
 	} else {
-		var reader io.Reader
-		reader, err = readConfig(ctx, objAPI, configFile)
-		if err != nil {
-			return nil, err
-		}
-		configData, err = ioutil.ReadAll(reader)
+		configData, err = readConfig(ctx, objAPI, configFile)
 	}
 	if err != nil {
 		return nil, err
@@ -137,7 +128,7 @@ func initIAMConfig(objAPI ObjectLayer) error {
 
 	configFile := path.Join(iamConfigPrefix, iamConfigFile)
 
-	err := checkConfig(context.Background(), configFile, objAPI)
+	err := checkConfig(context.Background(), objAPI, configFile)
 	if err != nil && err != errConfigNotFound {
 		return err
 	}
@@ -154,7 +145,7 @@ func initIAMConfig(objAPI ObjectLayer) error {
 		globalIAMConfig = iamCfg
 		globalIAMValidators = iamCfg.GetAuthValidators()
 		globalIAMValidatorsMu.Unlock()
-		return saveIAMConfig(objAPI, iamCfg)
+		return saveIAMConfig(context.Background(), objAPI, iamCfg)
 	}
 
 	go watchConfig(objAPI, configFile, loadIAMConfig)

@@ -1215,7 +1215,7 @@ func (fs *FSObjects) ListBucketsHeal(ctx context.Context) ([]BucketInfo, error) 
 
 // SetBucketPolicy sets policy on bucket
 func (fs *FSObjects) SetBucketPolicy(ctx context.Context, bucket string, policy *policy.Policy) error {
-	return savePolicyConfig(fs, bucket, policy)
+	return savePolicyConfig(ctx, fs, bucket, policy)
 }
 
 // GetBucketPolicy will get policy on bucket

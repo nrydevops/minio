@@ -598,7 +598,7 @@ func (a adminAPIHandlers) SetIAMHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err = saveIAMConfig(objectAPI, iamConfig); err != nil {
+	if err = saveIAMConfig(ctx, objectAPI, iamConfig); err != nil {
 		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
 		return
 	}
@@ -687,7 +687,7 @@ func (a adminAPIHandlers) SetConfigHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err = saveServerConfig(objectAPI, &config); err != nil {
+	if err = saveServerConfig(ctx, objectAPI, &config); err != nil {
 		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
 		return
 	}
@@ -771,7 +771,7 @@ func (a adminAPIHandlers) UpdateCredentialsHandler(w http.ResponseWriter,
 	// Update local credentials in memory.
 	globalServerConfig.SetCredential(creds)
 
-	if err = saveServerConfig(objectAPI, globalServerConfig); err != nil {
+	if err = saveServerConfig(ctx, objectAPI, globalServerConfig); err != nil {
 		writeErrorResponseJSON(w, toAdminAPIErrCode(err), r.URL)
 		return
 	}
